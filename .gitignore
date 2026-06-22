@@ -1,0 +1,22 @@
+# Unreal Engine
+Binaries/
+DerivedDataCache/
+Intermediate/
+Saved/
+.vs/
+*.VC.db
+*.opensdf
+*.opendb
+*.sdf
+*.suo
+*.xcworkspace/
+*.xcodeproj/
+Build/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Large binary assets (commit source only)
+Content/*.uasset
+Content/*.umap
