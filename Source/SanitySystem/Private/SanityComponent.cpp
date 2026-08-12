@@ -1,69 +1,82 @@
+// SanityComponent.cpp
+// Core sanity state machine implementation.
+
 #include "SanityComponent.h"
 #include "SanityConfig.h"
+#include "SanityGameplayTags.h"
 
 USanityComponent::USanityComponent()
 {
-	PrimaryComponentTick.bCanEverTick = false;
+	PrimaryComponentTick.bCanEverTick = false; // event-driven, no per-frame polling
 }
 
 void USanityComponent::BeginPlay()
 {
 	Super::BeginPlay();
-	SanityValue = InitialSanity;
+
+	if (!Config)
+	{
+		UE_LOG(LogTemp, Log, TEXT("SanityComponent on %s has no Config assigned. Using component-level thresholds."),
+			*GetOwner()->GetName());
+	}
+
+	CurrentTier = ResolveTierForValue(CurrentSanity);
 }
 
-void USanityComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
+void USanityComponent::ModifySanity(float Delta, FGameplayTag Reason)
 {
-	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
-}
+	const float OldValue = CurrentSanity;
+	const float NewValue = FMath::Clamp(CurrentSanity + Delta, 0.f, 100.f);
 
-void USanityComponent::ModifySanity(float Delta, FName Source)
-{
-	if (FMath::IsNearlyZero(Delta)) return;
+	if (FMath::IsNearlyEqual(NewValue, OldValue))
+	{
+		return; // no-op guard: don't broadcast when clamping absorbed the delta entirely
+	}
 
-	const float PreviousValue = SanityValue;
-
-	const float MinVal = SanityConfig ? SanityConfig->MinSanity : 0.f;
-	const float MaxVal = SanityConfig ? SanityConfig->MaxSanity : 100.f;
-	SanityValue = FMath::Clamp(SanityValue + Delta, MinVal, MaxVal);
-
-	OnSanityChanged.Broadcast(SanityValue, Delta);
-	CheckThresholds(PreviousValue, Source);
+	CurrentSanity = NewValue;
+	OnSanityChanged.Broadcast(CurrentSanity, CurrentSanity - OldValue);
+	EvaluateTier();
 }
 
 void USanityComponent::SetSanity(float NewValue)
 {
-	const float MinVal = SanityConfig ? SanityConfig->MinSanity : 0.f;
-	const float MaxVal = SanityConfig ? SanityConfig->MaxSanity : 100.f;
-	SanityValue = FMath::Clamp(NewValue, MinVal, MaxVal);
-	TriggeredThresholds.Empty();
-	OnSanityChanged.Broadcast(SanityValue, 0.f);
+	const float OldValue = CurrentSanity;
+	const float ClampedValue = FMath::Clamp(NewValue, 0.f, 100.f);
+
+	if (FMath::IsNearlyEqual(ClampedValue, OldValue))
+	{
+		return;
+	}
+
+	CurrentSanity = ClampedValue;
+	OnSanityChanged.Broadcast(CurrentSanity, CurrentSanity - OldValue);
+	EvaluateTier();
 }
 
-void USanityComponent::CheckThresholds(float PreviousValue, FName Source)
+void USanityComponent::EvaluateTier()
 {
-	if (!SanityConfig) return;
-
-	TArray<float> Thresholds = {
-		SanityConfig->Threshold_Uneasy,
-		SanityConfig->Threshold_Disturbed,
-		SanityConfig->Threshold_Breaking,
-		SanityConfig->Threshold_Broken
-	};
-
-	for (float Threshold : Thresholds)
+	const FGameplayTag NewTier = ResolveTierForValue(CurrentSanity);
+	if (NewTier != CurrentTier)
 	{
-		// Crossed downward and hasn't fired yet
-		if (PreviousValue > Threshold && SanityValue <= Threshold
-			&& !TriggeredThresholds.Contains(Threshold))
-		{
-			TriggeredThresholds.Add(Threshold);
-			OnSanityThresholdReached.Broadcast(Threshold, Source);
-		}
-		// Recovered above threshold — allow it to fire again if fallen below later
-		else if (SanityValue > Threshold && TriggeredThresholds.Contains(Threshold))
-		{
-			TriggeredThresholds.Remove(Threshold);
-		}
+		const FGameplayTag OldTier = CurrentTier;
+		CurrentTier = NewTier;
+		OnSanityTierChanged.Broadcast(OldTier, NewTier);
 	}
+}
+
+FGameplayTag USanityComponent::ResolveTierForValue(float Value) const
+{
+	// Hysteresis: when improving (moving toward Stable), require clearing the
+	// threshold by TierHysteresisMargin. When declining, the raw threshold applies
+	// immediately. This prevents rapid tier flicker when sanity hovers near a boundary.
+	const bool bImproving = Value > CurrentSanity || CurrentTier == FGameplayTag();
+
+	const float EffectiveUneasy = bImproving ? UneasyThreshold + TierHysteresisMargin : UneasyThreshold;
+	const float EffectiveCritical = bImproving ? CriticalThreshold + TierHysteresisMargin : CriticalThreshold;
+	const float EffectiveBreaking = bImproving ? BreakingThreshold + TierHysteresisMargin : BreakingThreshold;
+
+	if (Value <= EffectiveBreaking)  return SanityTags::TAG_Sanity_Breaking;
+	if (Value <= EffectiveCritical)  return SanityTags::TAG_Sanity_Critical;
+	if (Value <= EffectiveUneasy)    return SanityTags::TAG_Sanity_Uneasy;
+	return SanityTags::TAG_Sanity_Stable;
 }

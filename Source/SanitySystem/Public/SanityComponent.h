@@ -1,25 +1,19 @@
+// SanityComponent.h
+// Core sanity state machine. Event-driven (no tick), gameplay-tag tiers, hysteresis-protected.
+
 #pragma once
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
-#include "SanityConfig.h"
+#include "GameplayTagContainer.h"
 #include "SanityComponent.generated.h"
 
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnSanityChanged, float, NewValue, float, Delta);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnSanityThresholdReached, float, Threshold, FName, Source);
+class USanityConfig;
 
-/**
- * USanityComponent
- *
- * Core component for the Sanity & Perception system.
- * Attach to APlayerCharacter. Holds SanityValue (0-100) and
- * broadcasts delegates when thresholds are crossed.
- *
- * All drain/restore logic lives in modifier classes (SanityDrainVolume,
- * SanityEnemyProximity, SanityRestoreZone) — this component is purely
- * the source of truth.
- */
-UCLASS(ClassGroup=(Horror), meta=(BlueprintSpawnableComponent), DisplayName="Sanity Component")
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnSanityChanged, float, NewValue, float, Delta);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnSanityTierChanged, FGameplayTag, OldTier, FGameplayTag, NewTier);
+
+UCLASS(ClassGroup = (Sanity), meta = (BlueprintSpawnableComponent))
 class SANITYSYSTEM_API USanityComponent : public UActorComponent
 {
 	GENERATED_BODY()
@@ -27,64 +21,67 @@ class SANITYSYSTEM_API USanityComponent : public UActorComponent
 public:
 	USanityComponent();
 
-protected:
-	virtual void BeginPlay() override;
+	/** Optional config asset for future non-threshold tuning (e.g. audio cues, VFX intensity curves). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Sanity")
+	TObjectPtr<USanityConfig> Config;
 
-public:
-	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
+	/** Sanity value at/below which tier becomes Uneasy. Editable per-instance until migrated into Config. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Sanity|Thresholds")
+	float UneasyThreshold = 70.f;
 
-	// ----------------------------------------------------------------
-	// Core API
-	// ----------------------------------------------------------------
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Sanity|Thresholds")
+	float CriticalThreshold = 35.f;
 
-	/**
-	 * Modify sanity by Delta (negative = drain, positive = restore).
-	 * Source is a tag for debugging/logging (e.g. "EnemyProximity", "DarkZone").
-	 */
-	UFUNCTION(BlueprintCallable, Category = "Sanity")
-	void ModifySanity(float Delta, FName Source);
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Sanity|Thresholds")
+	float BreakingThreshold = 10.f;
 
-	/** Returns current sanity value (0-100). */
-	UFUNCTION(BlueprintPure, Category = "Sanity")
-	float GetSanity() const { return SanityValue; }
+	/** Margin sanity must recover past a threshold before the tier upgrades back, preventing flicker at boundaries. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Sanity|Thresholds")
+	float TierHysteresisMargin = 5.f;
 
-	/** Returns sanity normalized to 0-1 range. Useful for material parameter binding. */
-	UFUNCTION(BlueprintPure, Category = "Sanity")
-	float GetSanityNormalized() const { return SanityValue / 100.f; }
-
-	/** Force-set sanity (use for saves/loads, not gameplay). */
-	UFUNCTION(BlueprintCallable, Category = "Sanity")
-	void SetSanity(float NewValue);
-
-	// ----------------------------------------------------------------
-	// Delegates
-	// ----------------------------------------------------------------
-
-	/** Fired every time SanityValue changes. */
+	/** Fires on every actual sanity value change (UI, HUD bars). Skipped if the value doesn't move. */
 	UPROPERTY(BlueprintAssignable, Category = "Sanity|Events")
 	FOnSanityChanged OnSanityChanged;
 
-	/** Fired when SanityValue crosses a configured threshold (only fires once per crossing). */
+	/** Fires ONLY when the sanity tier actually flips (post-process, audio, AI hooks). */
 	UPROPERTY(BlueprintAssignable, Category = "Sanity|Events")
-	FOnSanityThresholdReached OnSanityThresholdReached;
+	FOnSanityTierChanged OnSanityTierChanged;
 
-	// ----------------------------------------------------------------
-	// Configuration
-	// ----------------------------------------------------------------
+	/**
+	 * The single entry point for all sanity mutation. Every drain/restore/proximity
+	 * source should call this instead of touching sanity directly.
+	 * @param Delta   Positive to restore, negative to drain.
+	 * @param Reason  Gameplay tag identifying the source (e.g. Sanity.Source.EnemyProximity).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Sanity")
+	void ModifySanity(float Delta, FGameplayTag Reason);
 
-	/** Designer-facing DataAsset for threshold and clamp configuration. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Sanity|Config")
-	TObjectPtr<USanityConfig> SanityConfig;
+	/** Hard override, bypassing incremental delta logic (scripted scare moments). */
+	UFUNCTION(BlueprintCallable, Category = "Sanity")
+	void SetSanity(float NewValue);
 
-	/** Starting sanity value. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Sanity|Config", meta = (ClampMin = "0.0", ClampMax = "100.0"))
-	float InitialSanity = 100.f;
+	UFUNCTION(BlueprintPure, Category = "Sanity")
+	float GetCurrentSanity() const { return CurrentSanity; }
+
+	UFUNCTION(BlueprintPure, Category = "Sanity")
+	float GetSanityPercent() const { return CurrentSanity / 100.f; }
+
+	UFUNCTION(BlueprintPure, Category = "Sanity")
+	FGameplayTag GetCurrentTier() const { return CurrentTier; }
+
+protected:
+	virtual void BeginPlay() override;
+
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category = "Sanity", meta = (AllowPrivateAccess = "true"))
+	float CurrentSanity = 100.f;
+
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category = "Sanity", meta = (AllowPrivateAccess = "true"))
+	FGameplayTag CurrentTier;
 
 private:
-	float SanityValue;
+	/** Re-evaluates CurrentTier against thresholds with hysteresis; broadcasts only on actual change. */
+	void EvaluateTier();
 
-	/** Tracks which thresholds have already fired to avoid repeat broadcasts. */
-	TArray<float> TriggeredThresholds;
-
-	void CheckThresholds(float PreviousValue, FName Source);
+	/** Resolves the tier for a given value, applying hysteresis relative to the current tier. */
+	FGameplayTag ResolveTierForValue(float Value) const;
 };
