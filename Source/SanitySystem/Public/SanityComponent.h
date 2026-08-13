@@ -1,5 +1,5 @@
 // SanityComponent.h
-// Core sanity state machine. Event-driven (no tick), gameplay-tag tiers, hysteresis-protected.
+// Core sanity state machine. Event-driven, config-driven thresholds, hysteresis-protected.
 
 #pragma once
 
@@ -21,21 +21,11 @@ class SANITYSYSTEM_API USanityComponent : public UActorComponent
 public:
 	USanityComponent();
 
-	/** Optional config asset for future non-threshold tuning (e.g. audio cues, VFX intensity curves). */
+	/** Config asset holding all thresholds and clamp values. Assign in editor. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Sanity")
 	TObjectPtr<USanityConfig> Config;
 
-	/** Sanity value at/below which tier becomes Uneasy. Editable per-instance until migrated into Config. */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Sanity|Thresholds")
-	float UneasyThreshold = 70.f;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Sanity|Thresholds")
-	float CriticalThreshold = 35.f;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Sanity|Thresholds")
-	float BreakingThreshold = 10.f;
-
-	/** Margin sanity must recover past a threshold before the tier upgrades back, preventing flicker at boundaries. */
+	/** Hysteresis margin: sanity must recover past a threshold by this amount before tier upgrades. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Sanity|Thresholds")
 	float TierHysteresisMargin = 5.f;
 
@@ -48,8 +38,7 @@ public:
 	FOnSanityTierChanged OnSanityTierChanged;
 
 	/**
-	 * The single entry point for all sanity mutation. Every drain/restore/proximity
-	 * source should call this instead of touching sanity directly.
+	 * The single entry point for all sanity mutation.
 	 * @param Delta   Positive to restore, negative to drain.
 	 * @param Reason  Gameplay tag identifying the source (e.g. Sanity.Source.EnemyProximity).
 	 */
@@ -79,9 +68,9 @@ protected:
 	FGameplayTag CurrentTier;
 
 private:
-	/** Re-evaluates CurrentTier against thresholds with hysteresis; broadcasts only on actual change. */
 	void EvaluateTier();
-
-	/** Resolves the tier for a given value, applying hysteresis relative to the current tier. */
 	FGameplayTag ResolveTierForValue(float Value) const;
+
+	/** Helper to safely read thresholds from Config, with fallback defaults. */
+	void GetThresholds(float& OutUneasy, float& OutDisturbed, float& OutBreaking, float& OutBroken, float& OutMin, float& OutMax) const;
 };

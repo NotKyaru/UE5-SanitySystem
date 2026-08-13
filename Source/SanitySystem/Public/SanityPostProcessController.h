@@ -1,3 +1,7 @@
+// SanityPostProcessController.h
+// Drives post-process material parameters based on sanity tier changes.
+// Attach to the same actor as USanityComponent.
+
 #pragma once
 
 #include "CoreMinimal.h"
@@ -5,23 +9,8 @@
 #include "SanityPostProcessController.generated.h"
 
 class USanityComponent;
-class UPostProcessComponent;
 
-/**
- * USanityPostProcessController
- *
- * Attach to the same actor as USanityComponent.
- * Listens to OnSanityChanged and drives scalar parameters
- * on a Post-Process Material in real time.
- *
- * Material Parameter Targets (set these names in your PP Material):
- *   - "SanityNormalized"     : float 0-1, master driver
- *   - "VignetteIntensity"    : float, ramps 0→1 below Threshold_Uneasy
- *   - "ChromaticAberration"  : float, ramps 0→1 below Threshold_Disturbed
- *   - "DesaturationAmount"   : float, ramps 0→1 below Threshold_Breaking
- *   - "NoiseGrainIntensity"  : float, ramps 0→1 below Threshold_Breaking
- */
-UCLASS(ClassGroup=(Horror), meta=(BlueprintSpawnableComponent), DisplayName="Sanity PostProcess Controller")
+UCLASS(ClassGroup = (Horror), meta = (BlueprintSpawnableComponent), DisplayName = "Sanity PostProcess Controller")
 class SANITYSYSTEM_API USanityPostProcessController : public UActorComponent
 {
 	GENERATED_BODY()
@@ -33,23 +22,19 @@ protected:
 	virtual void BeginPlay() override;
 
 public:
-
 	/** The post-process material instance to drive. Assign in Blueprint. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PostProcess")
-	TObjectPtr<UMaterialInstanceDynamic> SanityMaterial;
+	TObjectPtr SanityMaterial;
 
-	/**
-	 * How fast the PP parameters interpolate toward target values.
-	 * Higher = snappier transitions. Lower = dreamlike fade.
-	 */
+	/** How fast the PP parameters interpolate toward target values. Higher = snappier. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PostProcess", meta = (ClampMin = "0.1"))
 	float InterpSpeed = 3.f;
 
 private:
 	UPROPERTY()
-	TObjectPtr<USanityComponent> SanityComponent;
+	TObjectPtr SanityComponent;
 
-	// Target values (set on threshold events)
+	// Target values (set on tier events)
 	float TargetVignette = 0.f;
 	float TargetChromatic = 0.f;
 	float TargetDesaturation = 0.f;
@@ -62,8 +47,9 @@ private:
 	float CurrentGrain = 0.f;
 
 	UFUNCTION()
-	void OnSanityChanged(float NewValue, float Delta);
+	void OnSanityTierChanged(FGameplayTag OldTier, FGameplayTag NewTier);
 
-	void UpdateTargetParameters(float SanityNormalized);
+	void UpdateTargetParametersForTier(FGameplayTag Tier);
+
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 };

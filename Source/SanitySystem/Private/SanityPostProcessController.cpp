@@ -1,5 +1,9 @@
+// SanityPostProcessController.cpp
+// Drives post-process material based on sanity tier changes.
+
 #include "SanityPostProcessController.h"
 #include "SanityComponent.h"
+#include "SanityGameplayTags.h"
 #include "Materials/MaterialInstanceDynamic.h"
 
 USanityPostProcessController::USanityPostProcessController()
@@ -14,7 +18,9 @@ void USanityPostProcessController::BeginPlay()
 	SanityComponent = GetOwner()->FindComponentByClass<USanityComponent>();
 	if (SanityComponent)
 	{
-		SanityComponent->OnSanityChanged.AddDynamic(this, &USanityPostProcessController::OnSanityChanged);
+		SanityComponent->OnSanityTierChanged.AddDynamic(this, &USanityPostProcessController::OnSanityTierChanged);
+		// Initialize to current tier on startup
+		UpdateTargetParametersForTier(SanityComponent->GetCurrentTier());
 	}
 	else
 	{
@@ -22,32 +28,42 @@ void USanityPostProcessController::BeginPlay()
 	}
 }
 
-void USanityPostProcessController::OnSanityChanged(float NewValue, float Delta)
+void USanityPostProcessController::OnSanityTierChanged(FGameplayTag OldTier, FGameplayTag NewTier)
 {
-	const float Normalized = NewValue / 100.f;
-	UpdateTargetParameters(Normalized);
-
-	if (SanityMaterial)
-	{
-		SanityMaterial->SetScalarParameterValue(FName("SanityNormalized"), Normalized);
-	}
+	UpdateTargetParametersForTier(NewTier);
 }
 
-void USanityPostProcessController::UpdateTargetParameters(float SanityNormalized)
+void USanityPostProcessController::UpdateTargetParametersForTier(FGameplayTag Tier)
 {
-	// Vignette: ramps in below 0.75 (Threshold_Uneasy)
-	TargetVignette = FMath::GetMappedRangeValueClamped(
-		FVector2D(0.75f, 0.5f), FVector2D(0.f, 1.f), SanityNormalized);
-
-	// Chromatic Aberration: ramps in below 0.5 (Threshold_Disturbed)
-	TargetChromatic = FMath::GetMappedRangeValueClamped(
-		FVector2D(0.5f, 0.25f), FVector2D(0.f, 1.f), SanityNormalized);
-
-	// Desaturation + Grain: ramp in below 0.25 (Threshold_Breaking)
-	TargetDesaturation = FMath::GetMappedRangeValueClamped(
-		FVector2D(0.25f, 0.f), FVector2D(0.f, 1.f), SanityNormalized);
-
-	TargetGrain = TargetDesaturation;
+	// Tier-driven target values. Adjust these to match your horror intensity curve.
+	if (Tier == SanityTags::TAG_Sanity_Stable)
+	{
+		TargetVignette = 0.f;
+		TargetChromatic = 0.f;
+		TargetDesaturation = 0.f;
+		TargetGrain = 0.f;
+	}
+	else if (Tier == SanityTags::TAG_Sanity_Uneasy)
+	{
+		TargetVignette = 0.3f;
+		TargetChromatic = 0.f;
+		TargetDesaturation = 0.f;
+		TargetGrain = 0.f;
+	}
+	else if (Tier == SanityTags::TAG_Sanity_Critical)
+	{
+		TargetVignette = 0.6f;
+		TargetChromatic = 0.4f;
+		TargetDesaturation = 0.2f;
+		TargetGrain = 0.2f;
+	}
+	else if (Tier == SanityTags::TAG_Sanity_Breaking)
+	{
+		TargetVignette = 1.f;
+		TargetChromatic = 0.8f;
+		TargetDesaturation = 0.6f;
+		TargetGrain = 0.6f;
+	}
 }
 
 void USanityPostProcessController::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
@@ -57,13 +73,13 @@ void USanityPostProcessController::TickComponent(float DeltaTime, ELevelTick Tic
 	if (!SanityMaterial) return;
 
 	// Interpolate current values toward targets for smooth transitions
-	CurrentVignette    = FMath::FInterpTo(CurrentVignette,    TargetVignette,    DeltaTime, InterpSpeed);
-	CurrentChromatic   = FMath::FInterpTo(CurrentChromatic,   TargetChromatic,   DeltaTime, InterpSpeed);
+	CurrentVignette = FMath::FInterpTo(CurrentVignette, TargetVignette, DeltaTime, InterpSpeed);
+	CurrentChromatic = FMath::FInterpTo(CurrentChromatic, TargetChromatic, DeltaTime, InterpSpeed);
 	CurrentDesaturation = FMath::FInterpTo(CurrentDesaturation, TargetDesaturation, DeltaTime, InterpSpeed);
-	CurrentGrain       = FMath::FInterpTo(CurrentGrain,       TargetGrain,       DeltaTime, InterpSpeed);
+	CurrentGrain = FMath::FInterpTo(CurrentGrain, TargetGrain, DeltaTime, InterpSpeed);
 
-	SanityMaterial->SetScalarParameterValue(FName("VignetteIntensity"),   CurrentVignette);
+	SanityMaterial->SetScalarParameterValue(FName("VignetteIntensity"), CurrentVignette);
 	SanityMaterial->SetScalarParameterValue(FName("ChromaticAberration"), CurrentChromatic);
-	SanityMaterial->SetScalarParameterValue(FName("DesaturationAmount"),  CurrentDesaturation);
+	SanityMaterial->SetScalarParameterValue(FName("DesaturationAmount"), CurrentDesaturation);
 	SanityMaterial->SetScalarParameterValue(FName("NoiseGrainIntensity"), CurrentGrain);
 }
