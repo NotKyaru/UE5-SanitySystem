@@ -1,4 +1,4 @@
-# UE5 Sanity System
+# UE5 Sanity System.
 
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Unreal Engine 5](https://img.shields.io/badge/Unreal%20Engine-5-black?logo=unrealengine)
