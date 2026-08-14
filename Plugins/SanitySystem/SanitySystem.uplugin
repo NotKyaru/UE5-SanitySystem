@@ -1,0 +1,31 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0.0",
+	"FriendlyName": "Sanity System",
+	"Description": "Modular sanity & perception system for UE5 horror games.",
+	"Category": "Gameplay",
+	"CreatedBy": "NotKyaru",
+	"CreatedByURL": "https://github.com/NotKyaru",
+	"DocsURL": "https://github.com/NotKyaru/UE5-SanitySystem/blob/main/README.md",
+	"MarketplaceURL": "",
+	"Support": {
+		"URL": "https://github.com/NotKyaru/UE5-SanitySystem/issues"
+	},
+	"EnabledByDefault": false,
+	"CanContainContent": true,
+	"IsBetaVersion": false,
+	"IsExperimentalVersion": false,
+	"Installed": false,
+	"EngineVersion": "5.0",
+	"Modules": [
+		{
+			"Name": "SanitySystem",
+			"Type": "Runtime",
+			"LoadingPhase": "Default",
+			"AdditionalDependencies": [
+				"GameplayTags"
+			]
+		}
+	]
+}
